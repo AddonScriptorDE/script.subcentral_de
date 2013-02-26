@@ -1,0 +1,17 @@
+1.0.0
+- Initial release
+1.0.1
+- Some small fixes
+1.0.2
+- Fixed & improved navigation
+- Added season/episode filtering while navigating
+- Added subtitle search via google custom search (max. 100 requests/day)
+1.0.3
+- Fixed bug while searching (when accessing a thread the first time)
+- Fixed bug while changing the settings (they were not reloaded until next addon start)
+1.0.4
+- Fixed url encoding problem
+- Improved custom search
+1.0.5
+- Improved subtitle listing
+- Improved custom search
