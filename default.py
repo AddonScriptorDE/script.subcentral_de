@@ -1,14 +1,14 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
-import xbmc, xbmcgui, xbmcaddon, urllib, urllib2, cookielib, re, os, shutil, socket, base64
+import xbmc, xbmcgui, xbmcaddon, urllib, urllib2, socket, cookielib, re, os, shutil, base64, xbmcvfs
 
+addon = xbmcaddon.Addon()
 socket.setdefaulttimeout(30)
-addonID = "script.subcentral_de"
-addon = xbmcaddon.Addon(id=addonID)
+addonID = addon.getAddonInfo('id')
 translation = addon.getLocalizedString
 addonUserDataFolder=xbmc.translatePath("special://profile/addon_data/"+addonID)
 subTempDir=xbmc.translatePath("special://profile/addon_data/"+addonID+"/srtTemp/")
-rarFile=xbmc.translatePath(addonUserDataFolder+"/sub.rar")
+rarFile=xbmc.translatePath(addonUserDataFolder+"/sub.")
 subFile=xbmc.translatePath(addonUserDataFolder+"/sub.srt")
 favFile=xbmc.translatePath(addonUserDataFolder+"/favourites")
 apiKeyFile=xbmc.translatePath(addonUserDataFolder+"/api.key")
@@ -53,11 +53,13 @@ if pause=="true" and xbmc.Player().isPlayingVideo():
 playlist = xbmc.PlayList(xbmc.PLAYLIST_VIDEO)
 if playlist.getposition()>=0:
   currentTitle = playlist[playlist.getposition()].getdescription()
-  currentFile = playlist[playlist.getposition()].getfilename()
+  
+currentFile = xbmc.Player().getPlayingFile()
 
 cj = cookielib.CookieJar()
+mainUrl = "http://www.subcentral.de"
 opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(cj))
-opener.open("http://www.subcentral.de/index.php?form=UserLogin", data="loginUsername="+user+"&loginPassword="+pw)
+opener.open(mainUrl+"/index.php?form=UserLogin", data="loginUsername="+urllib.quote_plus(user)+"&loginPassword="+urllib.quote_plus(pw))
 
 while (user=="" or pw==""):
   addon.openSettings()
@@ -68,11 +70,14 @@ currentSeason=""
 currentEpisode=xbmc.getInfoLabel('VideoPlayer.Episode')
 currentSeason=xbmc.getInfoLabel('VideoPlayer.Season')
 
-dirName=""
-fileName=""
-if currentEpisode=="" and "http://" not in currentFile and "plugin://" not in currentFile:
+dirName = ""
+try:
   dirName=(currentFile.split(os.sep)[-2]).lower()
-  fileName=os.path.basename(currentFile).lower()
+except:
+  pass
+
+fileName=os.path.basename(currentFile).lower()
+if currentEpisode=="":
   matchDir=re.compile('\\.s(.+?)e(.+?)\\.', re.DOTALL).findall(dirName)
   matchFile=re.compile('\\.s(.+?)e(.+?)\\.', re.DOTALL).findall(fileName)
   if len(matchDir)>0:
@@ -94,12 +99,12 @@ if len(currentSeason)==1:
   currentSeason="0"+currentSeason
 
 currentRelease=""
-if "-" in dirName:
-  currentRelease=(dirName.split("-")[-1]).lower()
-elif "-" in fileName:
+if "-" in fileName:
   currentRelease=(fileName.split("-")[-1]).lower()
   if "." in currentRelease:
     currentRelease=currentRelease[:currentRelease.find(".")]
+elif "-" in dirName:
+  currentRelease=(dirName.split("-")[-1]).lower()
 
 def main():
         global mainType
@@ -139,12 +144,12 @@ def search():
           elif len(matchTitle)>0:
             title=matchTitle[0][0].strip()
         
-        title=title.replace(".","%20")
+        title=title.replace("."," ")
         if "(" in title:
           title=title[:title.find("(")].strip()
         
         if title=="" or season=="" or episode=="":
-          xbmc.executebuiltin('XBMC.Notification(Info:,'+translation(30014)+'!,3000)')
+          xbmc.executebuiltin('XBMC.Notification(SubCentral.de:,'+translation(30014)+'!,3000)')
           main()
         else:
           if season[0:1]=="0":
@@ -154,9 +159,10 @@ def search():
           global ownKey
           if ownKey=="":
             ownKey=general
-          searchString='"[subs] '+title+' - staffel '+season+'|0'+season+'"'
-          xbmc.log("SCDE Log Search: "+title+"#"+season)
-          content = getUrl("https://www.googleapis.com/customsearch/v1?key="+ownKey+"&cx=016144106520845837387:lj4yjfpwyna&q="+urllib.quote_plus(searchString)+"&alt=json")
+          searchString='intitle:"[subs] '+title+' - staffel '+season+'|0'+season+'"'
+          fullUrl="https://www.googleapis.com/customsearch/v1?key="+ownKey+"&cx=016144106520845837387:lj4yjfpwyna&q="+urllib.quote_plus(searchString)+"&alt=json"
+          xbmc.log("SCDE Addon Log - Search: "+title+"#"+season)
+          content = getUrl(fullUrl)
           if '"items"' in content:
             content = content[content.find('"items"'):]
             spl=content.split('"kind"')
@@ -189,15 +195,19 @@ def search():
               season="0"+season
             
             if finalUrl!="":
+              if "&action=" in finalUrl:
+                finalUrl=finalUrl[:finalUrl.find("&action=")]
               content = opener.open(finalUrl).read()
               if 'class="bedankhinweisSC' in content:
-                match=re.compile('href="index.php\\?action=Thank(.+?)"', re.DOTALL).findall(content)
-                matchID=re.compile('name="threadID" value="(.+?)"', re.DOTALL).findall(content)
+                contentThanks=content
+                contentThanks=contentThanks[contentThanks.find('class="bedankhinweisSC'):]
+                match=re.compile('href="index.php\\?action=Thank(.+?)"', re.DOTALL).findall(contentThanks)
+                matchID=re.compile('name="threadID" value="(.+?)"', re.DOTALL).findall(contentThanks)
                 dialog = xbmcgui.Dialog()
                 nr=dialog.select(title, [translation(30005)+"..."])
                 if nr>=0:
-                  opener.open("http://www.subcentral.de/index.php?action=Thank"+match[0].replace("&amp;","&"))
-                  content = opener.open("http://www.subcentral.de/index.php?page=Thread&threadID="+matchID[0]).read()
+                  opener.open(mainUrl+"/index.php?action=Thank"+match[0].replace("&amp;","&"))
+                  content = opener.open(mainUrl+"/index.php?page=Thread&threadID="+matchID[0]).read()
               
               attachments = []
               titles = []
@@ -205,24 +215,35 @@ def search():
               match=re.compile('<title>(.+?)-', re.DOTALL).findall(content)
               tvShowTitle=match[0].replace("[Subs]","").strip()
               
-              contentDE=content[:content.find('<img src="creative/bilder/flags/usa.png"')]
+              content = content[content.find("quoteData.set('post-")+1:]
+              content = content[:content.find("quoteData.set('post-")]
+              contentDE=content
+              contentEN=""
               if '<img src="creative/bilder/flags/usa.png"' in content:
+                contentDE=content[:content.find('<img src="creative/bilder/flags/usa.png"')]
                 contentEN=content[content.find('<img src="creative/bilder/flags/usa.png"'):]
               elif '<img src="creative/bilder/flags/uk.png"' in content:
+                contentDE=content[:content.find('<img src="creative/bilder/flags/uk.png"')]
                 contentEN=content[content.find('<img src="creative/bilder/flags/uk.png"'):]
+              elif 'Englische Untertitel:' in content:
+                contentDE=content[:content.find('Englische Untertitel:')]
+                contentEN=content[content.find('Englische Untertitel:'):]
+              if "page=Attachment&attachmentID=" not in contentDE:
+                contentDE=content
               
               if language=="0":
                 tempDE=appendSubInfo(tvShowTitle,season,episode,release,contentDE,"DE")
                 attachments += tempDE[0]
                 titles += tempDE[1]
-                tempEN=appendSubInfo(tvShowTitle,season,episode,release,contentEN,"EN")
-                attachments += tempEN[0]
-                titles += tempEN[1]
+                if contentEN!="":
+                  tempEN=appendSubInfo(tvShowTitle,season,episode,release,contentEN,"EN")
+                  attachments += tempEN[0]
+                  titles += tempEN[1]
               elif language=="1":
                 tempDE=appendSubInfo(tvShowTitle,season,episode,release,contentDE,"DE")
                 attachments += tempDE[0]
                 titles += tempDE[1]
-              elif language=="2":
+              elif language=="2" and contentEN!="":
                 tempEN=appendSubInfo(tvShowTitle,season,episode,release,contentEN,"EN")
                 attachments += tempEN[0]
                 titles += tempEN[1]
@@ -230,85 +251,127 @@ def search():
               if len(titles)>0:
                 titles, attachments = (list(x) for x in zip(*sorted(zip(titles, attachments))))
               dialog = xbmcgui.Dialog()
-              nr=dialog.select(currentTitle, titles)
+              nr=dialog.select(os.path.basename(currentFile), titles)
               if nr>=0:
-                subUrl="http://www.subcentral.de/index.php?page=Attachment&attachmentID="+attachments[nr]
+                subUrl=mainUrl+"/index.php?page=Attachment&attachmentID="+attachments[nr]
                 setSubtitle(subUrl)
               elif backNav=="true":
                 main()
             else:
-              xbmc.executebuiltin('XBMC.Notification(Info:,'+translation(30015)+'!,3000)')
+              xbmc.executebuiltin('XBMC.Notification(SubCentral.de:,'+translation(30015)+'!,3000)')
               main()
           elif '"totalResults": "0"' in content:
-            xbmc.executebuiltin('XBMC.Notification(Info:,'+translation(30015)+'!,3000)')
+            xbmc.executebuiltin('XBMC.Notification(SubCentral.de:,'+translation(30015)+'!,3000)')
             main()
           else:
-            xbmc.executebuiltin('XBMC.Notification(Info:,'+translation(30016)+'!,10000)')
+            xbmc.executebuiltin('XBMC.Notification(SubCentral.de:,'+translation(30016)+'!,10000)')
             main()
 
-def appendSubInfo(tvShowTitle,season,episode,release,content,lang):
-        attachments = []
-        titles = []
-        spl=content.split('class="release"')
-        for i in range(1,len(spl),1):
-          entry=spl[i]
-          match=re.compile('>E(.+?) -', re.DOTALL).findall(entry)
-          match2=re.compile('>(.+?)x(.+?) -', re.DOTALL).findall(entry)
-          match3=re.compile('>(.+?)<', re.DOTALL).findall(entry)
-          if "- Komplett<" in entry:
-            ep=ep2=" - Komplett"
+def getEpisodes(entry):
+        ep=ep2=""
+        match=re.compile('>E(.+?) -', re.DOTALL).findall(entry,0,10)
+        match2=re.compile('>(.+?)x(.+?) -', re.DOTALL).findall(entry,0,10)
+        match3=re.compile('>(.+?)\\. ', re.DOTALL).findall(entry,0,10)
+        match4=re.compile('>(.+?) -', re.DOTALL).findall(entry,0,10)
+        match5=re.compile('>(.+?)<', re.DOTALL).findall(entry,0,10)
+        if "- komplett<" in entry.lower():
+          ep=ep2=" - Komplett"
+        else:
+          if len(match)>0:
+            ep=match[0]
+          elif len(match2):
+            ep=match2[0][1]
+          elif len(match3):
+            ep=match3[0]
+          elif len(match4):
+            ep=match4[0]
+          elif len(match5):
+            ep=match5[0]
           else:
-            if len(match)>0:
-              ep=match[0]
-            elif len(match2):
-              ep=match2[0][1]
-            elif len(match3):
-              ep=match3[0]
-            else:
-              ep=""
+            ep="00"
+          ep2="E"+ep
+        return [ep,ep2]
+
+def appendSubInfo(tvShowTitle,season,episode,release,content,lang):
+        attachments1 = []
+        titles1 = []
+        content2=content.replace('<span class="&nbsp; Stil36 Stil31">','').replace('<span class="Stil37">','')
+        match=re.compile('<div align="center"><a href="http://www.subcentral.de/index.php\\?page=Attachment&attachmentID=(.+?)">▪ E(.+?) \\((.+?)\\)</a>', re.DOTALL).findall(content2)
+        for attach, ep, rel in match:
+          ep2="E"+ep
+          if episode==ep:
+            check = release==""
+            if release!="":
+              check = release==rel.lower()
+            if check:
+              if attach not in attachments1:
+                attachments1.append(attach)
+                titles1.append(lang+" - "+tvShowTitle+" - S"+season+ep2+" - "+rel.replace("</span>",""))
+        if len(attachments1)==0:
+          match=re.compile('<div align="center"><a href="http://www.subcentral.de/index.php\\?page=Attachment&attachmentID=(.+?)">▪ E(.+?) \\((.+?)\\)</a>', re.DOTALL).findall(content2)
+          for attach, ep, rel in match:
             ep2="E"+ep
-          match=re.compile('index.php\\?page=Attachment&attachmentID=(.+?)">(.+?)</a>', re.DOTALL).findall(entry)
-          for attach, rel in match:
             if episode==ep:
-              check = release==""
-              if release!="":
-                check = release==rel.lower()
-              if check:
-                if attach not in attachments:
-                  attachments.append(attach)
-                  titles.append(lang+" - "+tvShowTitle+" - S"+season+ep2+" - "+rel.replace("<strong>","").replace("</strong>",""))
-        if len(attachments)==0:
-          spl=content.split('class="release"')
+              if attach not in attachments1:
+                attachments1.append(attach)
+                titles1.append(lang+" - "+tvShowTitle+" - S"+season+ep2+" - "+rel.replace("</span>",""))
+        if len(attachments1)==0:
+          match=re.compile('<div align="center"><a href="http://www.subcentral.de/index.php\\?page=Attachment&attachmentID=(.+?)">▪ E(.+?) \\((.+?)\\)</a>', re.DOTALL).findall(content2)
+          for attach, ep, rel in match:
+            ep2="E"+ep
+            if attach not in attachments1:
+              attachments1.append(attach)
+              titles1.append(lang+" - "+tvShowTitle+" - S"+season+ep2+" - "+rel.replace("</span>",""))
+        attachments2 = []
+        titles2 = []
+        splitStr = ""
+        if 'class="release"' in content:
+          splitStr = 'class="release"'
+        elif 'class="Stil9"' in content:
+          splitStr = 'class="Stil9"'
+        if splitStr:
+          spl=content.split(splitStr)
           for i in range(1,len(spl),1):
-            entry=spl[i]
-            match=re.compile('>E(.+?) -', re.DOTALL).findall(entry)
-            if "- Komplett<" in entry:
-              ep=ep2=" - Komplett"
-            else:
-              ep=match[0]
-              ep2="E"+ep
+            entry=spl[i].replace("<strong>","").replace("</strong>","").replace('<span style="font-size: 8pt">','')
+            temp = getEpisodes(entry)
+            ep = temp[0]
+            ep2 = temp[1]
             match=re.compile('index.php\\?page=Attachment&attachmentID=(.+?)">(.+?)</a>', re.DOTALL).findall(entry)
             for attach, rel in match:
               if episode==ep:
-                if attach not in attachments:
-                  attachments.append(attach)
-                  titles.append(lang+" - "+tvShowTitle+" - S"+season+ep2+" - "+rel.replace("<strong>","").replace("</strong>",""))
-        if len(attachments)==0:
-          spl=content.split('class="release"')
-          for i in range(1,len(spl),1):
-            entry=spl[i]
-            match=re.compile('>E(.+?) -', re.DOTALL).findall(entry)
-            if "- Komplett<" in entry:
-              ep=ep2=" - Komplett"
-            else:
-              ep=match[0]
-              ep2="E"+ep
-            match=re.compile('index.php\\?page=Attachment&attachmentID=(.+?)">(.+?)</a>', re.DOTALL).findall(entry)
-            for attach, rel in match:
-              if attach not in attachments:
-                attachments.append(attach)
-                titles.append(lang+" - "+tvShowTitle+" - S"+season+ep2+" - "+rel.replace("<strong>","").replace("</strong>",""))
-        return [attachments,titles]
+                check = release==""
+                if release!="":
+                  check = release==rel.lower()
+                if check:
+                  if attach not in attachments2:
+                    attachments2.append(attach)
+                    titles2.append(lang+" - "+tvShowTitle+" - S"+season+ep2+" - "+rel.replace("</span>",""))
+          if len(attachments2)==0:
+            spl=content.split(splitStr)
+            for i in range(1,len(spl),1):
+              entry=spl[i].replace("<strong>","").replace("</strong>","").replace('<span style="font-size: 8pt">','')
+              temp = getEpisodes(entry)
+              ep = temp[0]
+              ep2 = temp[1]
+              match=re.compile('index.php\\?page=Attachment&attachmentID=(.+?)">(.+?)</a>', re.DOTALL).findall(entry)
+              for attach, rel in match:
+                if episode==ep:
+                  if attach not in attachments2:
+                    attachments2.append(attach)
+                    titles2.append(lang+" - "+tvShowTitle+" - S"+season+ep2+" - "+rel.replace("</span>",""))
+          if len(attachments2)==0:
+            spl=content.split(splitStr)
+            for i in range(1,len(spl),1):
+              entry=spl[i].replace("<strong>","").replace("</strong>","").replace('<span style="font-size: 8pt">','')
+              temp = getEpisodes(entry)
+              ep = temp[0]
+              ep2 = temp[1]
+              match=re.compile('index.php\\?page=Attachment&attachmentID=(.+?)">(.+?)</a>', re.DOTALL).findall(entry)
+              for attach, rel in match:
+                if attach not in attachments2:
+                  attachments2.append(attach)
+                  titles2.append(lang+" - "+tvShowTitle+" - S"+season+ep2+" - "+rel.replace("</span>",""))
+        return [attachments1+attachments2,titles1+titles2]
 
 def showFavourites():
         ids = []
@@ -333,7 +396,7 @@ def showFavourites():
           main()
 
 def showAllSeries():
-        content = opener.open("http://www.subcentral.de/index.php").read()
+        content = opener.open(mainUrl+"/index.php").read()
         content = content[content.find('<option value=""> Serien QuickJump </option>')+1:]
         content = content[:content.find('</form>')]
         match=re.compile('<option value="(.+?)">(.+?)</option>', re.DOTALL).findall(content)
@@ -352,7 +415,7 @@ def showAllSeries():
           main()
 
 def showSeries(seriesID):
-        content = opener.open("http://www.subcentral.de/index.php?page=Board&boardID="+seriesID).read()
+        content = opener.open(mainUrl+"/index.php?page=Board&boardID="+seriesID).read()
         match=re.compile('<title>(.+?) -', re.DOTALL).findall(content)
         SeriesTitle=match[0]
         content = content[content.find("<h3>Wichtige Themen</h3>"):]
@@ -367,7 +430,7 @@ def showSeries(seriesID):
         for i in range(1,len(spl),1):
           entry=spl[i]
           match=re.compile('<a href="index.php\\?page=Thread&amp;threadID=(.+?)">(.+?)</a>', re.DOTALL).findall(entry)
-          if "staffel "+season in match[0][1].lower() or "staffel 0"+season in match[0][1].lower() and "subs" in match[0][1].lower():
+          if ("staffel "+season in match[0][1].lower() or "staffel 0"+season in match[0][1].lower()) and "subs" in match[0][1].lower():
             threadIDs.append(match[0][0])
             threadNames.append(cleanTitle(match[0][1]))
         if len(threadIDs)==0:
@@ -388,7 +451,7 @@ def showSeries(seriesID):
         else:
           threadNames.append(translation(30004))
         dialog = xbmcgui.Dialog()
-        nr=dialog.select(currentTitle, threadNames)
+        nr=dialog.select(os.path.basename(currentFile), threadNames)
         if nr>=0:
           if nr==len(threadNames)-1:
             if threadNames[nr]==translation(30003):
@@ -406,16 +469,19 @@ def showSeries(seriesID):
             showFavourites()
 
 def showSubtitles(seriesID,id):
-        content = opener.open("http://www.subcentral.de/index.php?page=Thread&threadID="+id).read()
+        content = opener.open(mainUrl+"/index.php?page=Thread&threadID="+id).read()
         match=re.compile('<title>(.+?)</title>', re.DOTALL).findall(content)
         title=match[0]
         if 'class="bedankhinweisSC' in content:
-          match=re.compile('href="index.php\\?action=Thank(.+?)"', re.DOTALL).findall(content)
+          contentThanks=content
+          contentThanks=contentThanks[contentThanks.find('class="bedankhinweisSC'):]
+          match=re.compile('href="index.php\\?action=Thank(.+?)"', re.DOTALL).findall(contentThanks)
+          matchID=re.compile('name="threadID" value="(.+?)"', re.DOTALL).findall(contentThanks)
           dialog = xbmcgui.Dialog()
           nr=dialog.select(title, [translation(30005)+"..."])
           if nr>=0:
-            opener.open("http://www.subcentral.de/index.php?action=Thank"+match[0].replace("&amp;","&"))
-            content = opener.open("http://www.subcentral.de/index.php?page=Thread&threadID="+id).read()
+            opener.open(mainUrl+"/index.php?action=Thank"+match[0].replace("&amp;","&"))
+            content = opener.open(mainUrl+"/index.php?page=Thread&threadID="+id).read()
           elif backNav=="true":
             showSeries(seriesID)
         attachments = []
@@ -427,25 +493,36 @@ def showSubtitles(seriesID,id):
         season=match[0]
         if len(season)==1:
           season="0"+season
-              
-        contentDE=content[:content.find('<img src="creative/bilder/flags/usa.png"')]
+        
+        content = content[content.find("quoteData.set('post-")+1:]
+        content = content[:content.find("quoteData.set('post-")]
+        contentDE=content
+        contentEN=""
         if '<img src="creative/bilder/flags/usa.png"' in content:
+          contentDE=content[:content.find('<img src="creative/bilder/flags/usa.png"')]
           contentEN=content[content.find('<img src="creative/bilder/flags/usa.png"'):]
         elif '<img src="creative/bilder/flags/uk.png"' in content:
+          contentDE=content[:content.find('<img src="creative/bilder/flags/uk.png"')]
           contentEN=content[content.find('<img src="creative/bilder/flags/uk.png"'):]
+        elif 'Englische Untertitel:' in content:
+          contentDE=content[:content.find('Englische Untertitel:')]
+          contentEN=content[content.find('Englische Untertitel:'):]
+        if "page=Attachment&attachmentID=" not in contentDE:
+          contentDE=content
         
         if language=="0":
           tempDE=appendSubInfo(tvShowTitle,season,currentEpisode,currentRelease,contentDE,"DE")
           attachments += tempDE[0]
           titles += tempDE[1]
-          tempEN=appendSubInfo(tvShowTitle,season,currentEpisode,currentRelease,contentEN,"EN")
-          attachments += tempEN[0]
-          titles += tempEN[1]
+          if contentEN!="":
+            tempEN=appendSubInfo(tvShowTitle,season,currentEpisode,currentRelease,contentEN,"EN")
+            attachments += tempEN[0]
+            titles += tempEN[1]
         elif language=="1":
           tempDE=appendSubInfo(tvShowTitle,season,currentEpisode,currentRelease,contentDE,"DE")
           attachments += tempDE[0]
           titles += tempDE[1]
-        elif language=="2":
+        elif language=="2" and contentEN!="":
           tempEN=appendSubInfo(tvShowTitle,season,currentEpisode,currentRelease,contentEN,"EN")
           attachments += tempEN[0]
           titles += tempEN[1]
@@ -453,9 +530,9 @@ def showSubtitles(seriesID,id):
         if len(titles)>0:
           titles, attachments = (list(x) for x in zip(*sorted(zip(titles, attachments))))
         dialog = xbmcgui.Dialog()
-        nr=dialog.select(currentTitle, titles)
+        nr=dialog.select(os.path.basename(currentFile), titles)
         if nr>=0:
-          subUrl="http://www.subcentral.de/index.php?page=Attachment&attachmentID="+attachments[nr]
+          subUrl=mainUrl+"/index.php?page=Attachment&attachmentID="+attachments[nr]
           setSubtitle(subUrl)
         elif backNav=="true":
           showSeries(seriesID)
@@ -463,6 +540,12 @@ def showSubtitles(seriesID,id):
 def setSubtitle(subUrl):
         clearSubTempDir()
         rarContent = opener.open(subUrl).read()
+        if rarContent.startswith("Rar"):
+          ext="rar"
+        else:
+          ext="zip"
+        global rarFile
+        rarFile=rarFile+ext
         fh = open(rarFile, 'wb')
         fh.write(rarContent)
         fh.close()
@@ -482,20 +565,23 @@ def setSubtitle(subUrl):
         elif len(files)!=0:
           tempFile = xbmc.translatePath(subTempDir+"/"+files[0])
         else:
-          xbmc.executebuiltin('XBMC.Notification(Info:,'+translation(30012)+'!,3000)')
+          xbmc.executebuiltin('XBMC.Notification(SubCentral.de:,'+translation(30017)+'!,3000)')
           if pause=="true" and xbmc.Player().isPlayingVideo():
             xbmc.Player().pause()
         if tempFile!="":
           shutil.copy2(tempFile, subFile)
           if saveSub=="true" and "http://" not in currentFile and "plugin://" not in currentFile:
             try:
-              extLength=len(currentFile.split(".")[-1])
-              shutil.copy2(tempFile, currentFile[:-extLength]+"srt")
+              extLength = len(currentFile.split(".")[-1])
+              archiveFile = currentFile[:-extLength]+"srt"
+              xbmcvfs.copy(tempFile, archiveFile)
+              global subFile
+              subFile = archiveFile
             except:
               pass
           clearSubTempDir()
           xbmc.Player().setSubtitles(subFile)
-          xbmc.executebuiltin('XBMC.Notification(Info:,'+translation(30012)+'!,2000)')
+          xbmc.executebuiltin('XBMC.Notification(SubCentral.de:,'+translation(30012)+'!,2000)')
           if pause=="true" and xbmc.Player().isPlayingVideo():
             xbmc.Player().pause()
 
@@ -517,7 +603,7 @@ def addToFavourites(seriesID,title):
             fh=open(favFile, 'a')
             fh.write(entry+"\n")
             fh.close()
-            xbmc.executebuiltin('XBMC.Notification(Info:,'+title+': '+translation(30008)+',3000)')
+            xbmc.executebuiltin('XBMC.Notification(SubCentral.de:,'+title+': '+translation(30008)+',3000)')
         else:
           fh=open(favFile, 'a')
           fh.write(entry+"\n")
@@ -533,11 +619,11 @@ def removeFromFavourites(seriesID,title):
         fh=open(favFile, 'w')
         fh.write(newContent)
         fh.close()
-        xbmc.executebuiltin('XBMC.Notification(Info:,'+title+': '+translation(30009)+',3000)')
+        xbmc.executebuiltin('XBMC.Notification(SubCentral.de:,'+title+': '+translation(30009)+',3000)')
 
 def getUrl(url):
         req = urllib2.Request(url)
-        req.add_header('User-Agent', 'Mozilla/5.0 (Windows NT 6.1; rv:19.0) Gecko/20100101 Firefox/19.0')
+        req.add_header('User-Agent', 'Mozilla/5.0 (Windows NT 6.1; rv:23.0) Gecko/20100101 Firefox/23.0')
         response = urllib2.urlopen(req)
         content=response.read()
         response.close()
