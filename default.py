@@ -59,6 +59,8 @@ currentFile = xbmc.Player().getPlayingFile()
 cj = cookielib.CookieJar()
 mainUrl = "http://www.subcentral.de"
 opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(cj))
+userAgent = "Mozilla/5.0 (Windows NT 6.2; WOW64; rv:23.0) Gecko/20100101 Firefox/23.0"
+opener.addheaders = [('User-Agent', userAgent)]
 opener.open(mainUrl+"/index.php?form=UserLogin", data="loginUsername="+urllib.quote_plus(user)+"&loginPassword="+urllib.quote_plus(pw))
 
 while (user=="" or pw==""):
@@ -175,8 +177,6 @@ def search():
               url=match[0]
               if "staffel" in title.lower() and "subs:" in title.lower() and "postID=" not in url and "boardID=" not in url:
                 finalUrl=url
-                if "&pageNo=" in finalUrl:
-                  finalUrl=finalUrl[:finalUrl.find("&pageNo=")]
                 break
             if finalUrl=="":
               for i in range(1,len(spl),1):
@@ -187,17 +187,16 @@ def search():
                 url=match[0]
                 if "staffel" in title.lower() and "postID=" not in url and "boardID=" not in url:
                   finalUrl=url
-                  if "&pageNo=" in finalUrl:
-                    finalUrl=finalUrl[:finalUrl.find("&pageNo=")]
                   break
             
             if len(season)==1:
               season="0"+season
             
             if finalUrl!="":
-              if "&action=" in finalUrl:
-                finalUrl=finalUrl[:finalUrl.find("&action=")]
-              content = opener.open(finalUrl).read()
+              threadID = finalUrl[finalUrl.find("&threadID=")+10:]
+              if "&" in threadID:
+                  threadID = threadID[:threadID.find("&")]
+              content = opener.open("http://www.subcentral.de/index.php?page=Thread&threadID="+threadID).read()
               if 'class="bedankhinweisSC' in content:
                 contentThanks=content
                 contentThanks=contentThanks[contentThanks.find('class="bedankhinweisSC'):]
